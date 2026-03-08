@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reporting Agent</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d0d0d;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid #222;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      background: linear-gradient(90deg, #fff, #888);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    header span {
+      font-size: 12px;
+      color: #666;
+      background: #1a1a1a;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .msg {
+      max-width: 80%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.6;
+      font-size: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .msg.user {
+      align-self: flex-end;
+      background: #2563eb;
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.assistant {
+      align-self: flex-start;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-bottom-left-radius: 4px;
+    }
+    .msg.assistant .loading {
+      display: inline-block;
+      width: 6px; height: 6px;
+      background: #666;
+      border-radius: 50%;
+      animation: pulse 1s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+    #input-area {
+      padding: 16px 24px;
+      border-top: 1px solid #222;
+      display: flex;
+      gap: 12px;
+    }
+    #input-area textarea {
+      flex: 1;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 10px;
+      padding: 12px 16px;
+      color: #e0e0e0;
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      min-height: 48px;
+      max-height: 120px;
+    }
+    #input-area textarea:focus { border-color: #2563eb; }
+    #input-area textarea::placeholder { color: #555; }
+    #input-area button {
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 0 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    #input-area button:hover { background: #1d4ed8; }
+    #input-area button:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .welcome {
+      text-align: center;
+      color: #555;
+      margin: auto;
+      font-size: 14px;
+      line-height: 2;
+    }
+    .welcome h2 { font-size: 24px; color: #888; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Reporting Agent</h1>
+    <span>reporting-agent</span>
+  </header>
+
+  <div id="chat">
+    <div class="welcome">
+      <h2>Reporting Agent</h2>
+      <p>输入项目进展要点，我帮你美化成结构化的周报/日报</p>
+      <p style="color:#444; font-size:12px; margin-top:8px;">示例：本周完成了登录模块开发，修复了3个bug，下周计划做权限系统</p>
+    </div>
+  </div>
+
+  <div id="input-area">
+    <textarea id="input" placeholder="输入项目进展要点..." rows="1"></textarea>
+    <button id="send" onclick="sendMessage()">发送</button>
+  </div>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const input = document.getElementById('input');
+    const sendBtn = document.getElementById('send');
+    const messages = [];
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    });
+
+    function addMessage(role, content) {
+      const welcome = chat.querySelector('.welcome');
+      if (welcome) welcome.remove();
+
+      const div = document.createElement('div');
+      div.className = `msg ${role}`;
+      div.textContent = content;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+      return div;
+    }
+
+    async function sendMessage() {
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = '';
+      input.style.height = 'auto';
+      sendBtn.disabled = true;
+
+      addMessage('user', text);
+      messages.push({ role: 'user', content: text });
+
+      const assistantDiv = addMessage('assistant', '');
+      assistantDiv.innerHTML = '<span class="loading"></span>';
+
+      try {
+        const res = await fetch('/api/agents/reporting-agent/stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages }),
+        });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = '';
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('0:')) continue;
+            try {
+              const text = JSON.parse(line.slice(2));
+              fullText += text;
+              assistantDiv.textContent = fullText;
+              chat.scrollTop = chat.scrollHeight;
+            } catch {}
+          }
+        }
+
+        if (!fullText) {
+          assistantDiv.textContent = '(empty response)';
+        }
+        messages.push({ role: 'assistant', content: fullText });
+      } catch (err) {
+        assistantDiv.textContent = `Error: ${err.message}`;
+      }
+
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  </script>
+</body>
+</html>
