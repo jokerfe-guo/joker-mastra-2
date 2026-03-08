@@ -2,12 +2,14 @@
  * Post-build script:
  * 1. Replace o200k_base tokenizer data with minimal stub (saves ~1.1 MB gzip)
  * 2. Replace Mastra default welcome page with our chat UI
+ * 3. Remove sensitive Cloudflare vars from generated Wrangler config
  */
 import { readdirSync, readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const sensitiveCloudflareVars = ['OPENAI_API_KEY'];
 
 // ── 1. Strip tokenizer ──
 const buildDirs = ['.mastra/.build', '.mastra/output'];
@@ -51,8 +53,9 @@ for (const buildDir of buildDirs) {
     let content = readFileSync(filePath, 'utf-8');
     if (content.includes('Welcome to Mastra')) {
       // Replace the landing page HTML with our chat UI
+      // Use case-insensitive match: build output uses <!doctype html> (lowercase)
       content = content.replace(
-        /`<!DOCTYPE html>\s*<html[^]*?Welcome to Mastra[^]*?<\/html>\s*`/,
+        /`\s*<!doctype html>\s*<html[^]*?Welcome to Mastra[^]*?<\/html>\s*`/i,
         '`' + escapedHtml.trim() + '`'
       );
       writeFileSync(filePath, content, 'utf-8');
@@ -66,4 +69,47 @@ if (pagesReplaced === 0) {
   console.log('⚠️  Welcome page not found in build output');
 } else {
   console.log(`✅ Replaced ${pagesReplaced} welcome page(s) with chat UI`);
+}
+
+// ── 3. Remove sensitive vars from generated Wrangler config ──
+const wranglerFiles = ['wrangler.jsonc', '.mastra/output/wrangler.json'];
+
+function removeSensitiveVars(content, keys) {
+  let nextContent = content;
+
+  for (const key of keys) {
+    const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    nextContent = nextContent.replace(
+      new RegExp(`^\\s*"${escapedKey}"\\s*:\\s*.*?,?\\s*$`, 'gm'),
+      ''
+    );
+  }
+
+  return nextContent.replace(/,(\s*[}\]])/g, '$1');
+}
+
+let sanitizedWranglerFiles = 0;
+for (const wranglerFile of wranglerFiles) {
+  const filePath = join(__dirname, '..', wranglerFile);
+  let content;
+  try {
+    content = readFileSync(filePath, 'utf-8');
+  } catch {
+    continue;
+  }
+
+  const sanitizedContent = removeSensitiveVars(content, sensitiveCloudflareVars);
+  if (sanitizedContent === content) {
+    continue;
+  }
+
+  writeFileSync(filePath, sanitizedContent, 'utf-8');
+  console.log(`✅ Removed sensitive vars from: ${wranglerFile}`);
+  sanitizedWranglerFiles++;
+}
+
+if (sanitizedWranglerFiles === 0) {
+  console.log('ℹ️  No sensitive Wrangler vars found');
+} else {
+  console.log(`✅ Sanitized ${sanitizedWranglerFiles} Wrangler config file(s)`);
 }
