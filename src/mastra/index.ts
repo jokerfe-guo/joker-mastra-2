@@ -5,11 +5,14 @@ import { LibSQLStore } from '@mastra/libsql';
 import { Observability, DefaultExporter, CloudExporter, SensitiveDataFilter } from '@mastra/observability';
 import { weatherWorkflow } from './workflows/weather-workflow';
 import { weatherAgent } from './agents/weather-agent';
+import { reportingAgent } from './agents/reporting-agent';
 import { toolCallAppropriatenessScorer, completenessScorer, translationScorer } from './scorers/weather-scorer';
+import { CloudflareDeployer } from '@mastra/deployer-cloudflare'
+
 
 export const mastra = new Mastra({
   workflows: { weatherWorkflow },
-  agents: { weatherAgent },
+  agents: { weatherAgent, reportingAgent },
   scorers: { toolCallAppropriatenessScorer, completenessScorer, translationScorer },
   storage: new LibSQLStore({
     id: "mastra-storage",
@@ -32,6 +35,12 @@ export const mastra = new Mastra({
           new SensitiveDataFilter(), // Redacts sensitive data like passwords, tokens, keys
         ],
       },
+    },
+  }),
+   deployer: new CloudflareDeployer({
+    name: 'joker-mastra-2',
+    vars: {
+      NODE_ENV: 'production',
     },
   }),
 });
