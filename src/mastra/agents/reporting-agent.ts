@@ -1,6 +1,5 @@
 import { Agent } from "@mastra/core/agent";
-import { Memory } from "@mastra/memory";
-// Removed Memory since it requires DB storage which is disabled on the edge
+// Memory disabled for Cloudflare Workers edge deployment
 
 export const reportingAgent = new Agent({
   id: "reporting-agent",
@@ -32,5 +31,5 @@ export const reportingAgent = new Agent({
       4.  **Language:** Use Chinese as the primary language unless otherwise specified.
   `,
   model: "openai/gpt-5.2",
-  memory: new Memory(),
+  // memory: disabled for Cloudflare Workers edge deployment
 });
